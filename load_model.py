@@ -1,4 +1,4 @@
-# 模型加载、关键参数提取与演化图
+# Load model and visualize
 import torch
 import os
 import pickle
