@@ -246,3 +246,53 @@ class PositionalFluxField:
                 print("缓存文件损坏，重新计算通量场")
                 return False
         return False
+
+
+def plot_flux_field(flux_field=None, save_path='flux_field.png'):
+    """
+    简化速度通量场可视化：2x2 子图 (integral_x, integral_y, 幅值, 向量场)
+    如不传 flux_field，自动从默认缓存加载。
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    if flux_field is None:
+        flux_field = PositionalFluxField()
+
+    R, Y = np.meshgrid(flux_field.r_grid, flux_field.y_grid, indexing='ij')
+    fx = flux_field.flux_x_grid
+    fy = flux_field.flux_y_grid
+    fmag = np.sqrt(fx ** 2 + fy ** 2)
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
+    fig.suptitle('Velocity flux field (r-y plane)', fontsize=14)
+
+    titles = [r'$\Phi_x$', r'$\Phi_y$', r'$|\Phi|$', 'Vector field']
+    data = [fx, fy, fmag, None]
+    cmaps = ['viridis', 'plasma', 'hot', None]
+
+    for idx in range(3):
+        im = axes[idx // 2, idx % 2].imshow(
+            data[idx].T, origin='lower', aspect='auto', cmap=cmaps[idx],
+            extent=[*flux_field.r_range, *flux_field.y_range])
+        axes[idx // 2, idx % 2].set_title(titles[idx])
+        axes[idx // 2, idx % 2].set_xlabel('r')
+        axes[idx // 2, idx % 2].set_ylabel('y')
+        plt.colorbar(im, ax=axes[idx // 2, idx % 2])
+
+    # 向量场（下采样）
+    step = max(1, flux_field.resolution // 20)
+    axes[1, 1].quiver(R[::step, ::step], Y[::step, ::step],
+                      fx[::step, ::step], fy[::step, ::step],
+                      fmag[::step, ::step], cmap='coolwarm')
+    axes[1, 1].set_title(titles[3])
+    axes[1, 1].set_xlabel('r')
+    axes[1, 1].set_ylabel('y')
+    axes[1, 1].set_xlim(flux_field.r_range)
+    axes[1, 1].set_ylim(flux_field.y_range)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f'通量场可视化已保存到: {save_path}')

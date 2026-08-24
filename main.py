@@ -5,7 +5,6 @@
 
 import os
 import torch
-from sympy.abc import alpha
 
 from models.neural_siren import SpaceTimeSIREN
 from models.etching_models import EtchingRateModel
@@ -14,9 +13,6 @@ from training.trainer import EtchingTrainer
 from visualization.surface_visualizer import SurfaceExtractor, plot_training_loss
 from utils.geometry import InitialPlane2
 from config.default_config import TrainingConfig
-import numpy as np
-from scipy.integrate import quad
-from multiprocessing import Pool, cpu_count
 
 def setup_directories():
     """创建必要的目录"""
@@ -37,8 +33,6 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"使用设备: {device}")
 
-    import os
-
     # 预训练文件路径
     model_path = 'models/final_model.pth'
 
@@ -54,7 +48,7 @@ def main():
             r = config.radius, alpha =config.alpha
         ).to(device)
 
-    etching_model = EtchingRateModel(etching_type=config.etching_type)
+    etching_model = EtchingRateModel()
     loss_fn = LevelSetLoss(
         lambda_data=config.lambda_data,
 
@@ -98,7 +92,6 @@ def main():
 
     # 保存模型
     model.save('models/final_model.pth')
-    etching_model.save('models/etching_model.pkl')
 
     print("训练完成！")
     print(f"最终损失: {losses[-1]:.6f}")
