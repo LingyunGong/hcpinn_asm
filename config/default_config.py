@@ -21,11 +21,11 @@ class TrainingConfig:
 
         # Physical parameters (simplified)
         self.etching_type = 'integral'  # isotropic, anisotropic, reflect, stochastic ,integral
-        self.radius = 0.25
-        self.h = 1.6  # Mask height / diameter of opening
-        self.sigma = 0.02 # Parameter of Gauss function (Angle distribution)
+        self.radius = 0.25  # 沟槽开口半宽（模型单位）
+        self.h = 1.6  # 掩膜高/开口直径比 -> 掩膜高 = 2*radius*h = 0.8（模型单位）
+        self.sigma = 0.02 # 论文 Table 1: sigma（离子角分布宽度）0.02 (0.01--0.04)
         self.side_p = 0.1 # Side wall reaction parameter - side wall protection  0.01
-        self.rate = 8 # Rate strength
+        self.rate = 8 # 论文 Table 1: k_i / k_i0（离子通道速率常数）8 (4--16)
 
         # 可视化参数
         self.visualization_resolution = 80

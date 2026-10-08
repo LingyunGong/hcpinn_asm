@@ -1,3 +1,27 @@
+"""刻蚀速率模型（论文 §2.2 Rate Model）的通量积分预计算。
+
+实现论文中的确定性速率模型（Langmuir-Hinshelwood 型动力学 + 直通/反射
+通量积分）。所有物理量均为约化模型单位（reduced model units，与论文
+Table 1 "Rate-model parameters" 一一对应）：
+
+    代码变量 / 位置                        论文符号        名义值 (范围)
+    ---------------------------------------------------------------------------
+    config.rate (rate_0)                   k_i, k_i0      8   (4--16)      离子通道速率常数
+    config.sigma (g 的高斯宽度)            sigma          0.02 (0.01--0.04) 离子角分布宽度
+    ratio                                  rho            0.002 (<=0.01)    反射离子混合权重
+    calculate_positional_flux_integral 中的 32            k_a            32  (16--64)     中性吸附速率常数
+    neutral_etch_rate 的 R0                k_n0           0.5 (0.25--1.0)   自发化学反应速率常数
+    neutral_etch_rate 的 D                 D              0.15 (0.08--0.30) 中性粒子扩散系数
+    neutral_etch_rate 的 ks                k              0.16 (0.08--0.32) 一阶损失速率常数
+    EtchingRateModel 的 coefficient        gamma          0.8               单位换算系数
+    k_d（热脱附速率常数）                  ~0，被忽略（≪ k_a·J_n）
+    y 方向经验增强因子 1.3                 吸收进约化单位的纵向通量修正
+
+掩膜几何（模型单位）：config.radius = 0.25（开口半宽），config.h = 1.6
+（掩膜高/开口直径比），掩膜高 mask_h = 2*radius*h = 0.8。中性穿透长度
+ell = sqrt(D*w0 / (2k))，w0 = 0.5 为开口宽度。
+"""
+
 import numpy as np
 import torch
 import matplotlib
@@ -17,10 +41,10 @@ from config.default_config import TrainingConfig
 config = TrainingConfig()
 radius =config.radius
 mask_h = radius * 2 * config.h
-rate_0 = config.rate # 速率系数
+rate_0 = config.rate  # 论文 Table 1: k_i / k_i0（离子通道速率常数）= 8 (4--16)
 # Define angular distribution of incident ions
 def g(theta, center=np.pi / 2, sigma_1=config.sigma):
-    """高斯分布函数，模拟离子通量分布"""
+    """离子角分布（drifted Maxwellian 近似为高斯），sigma_1 = 论文 Table 1 的 sigma = 0.02 (0.01--0.04)"""
     return np.exp(-(theta - center) ** 2 / (2 * sigma_1 ** 2))
 
 def g2(theta, center=0, sigma=config.sigma):
@@ -29,17 +53,18 @@ def g2(theta, center=0, sigma=config.sigma):
 # Neural transport
 def neutral_etch_rate(x,y, R0=0.5, alpha=3.0, D=0.15, ks=0.16, w0=0.5):
     """
-    计算中性粒子扩散贡献的刻蚀速率随深度的变化，正比于浓度梯度
+    中性粒子通道：稳态扩散方程 D·∇²C - k·C = 0 的解给出的刻蚀速率
+    （论文 §2.2 Reflected Flux / Neutral transport；全部为约化模型单位）
 
     参数:
-        y: 深度坐标 (μm)，标量或numpy数组
-        R0: 刻蚀速率贡献系数 默认: 0.1
-        alpha: 反应级数 默认: 1.0
-        D: 扩散系数 (μm²/μs) 默认: 0.15
-        ks: 表面反应速率常数 (μm/μs) 默认: 0.08
-        w0: 沟槽开口宽度 (μm) 默认: 0.5
+        y: 深度坐标，标量或numpy数组
+        R0: k_n0 —— 自发化学反应速率常数，论文 Table 1: 0.5 (0.25--1.0)
+        alpha: 近壁衰减指数（几何修正，模型单位）
+        D: 扩散系数，论文 Table 1: 0.15 (0.08--0.30)
+        ks: k —— 一阶损失速率常数，论文 Table 1: 0.16 (0.08--0.32)
+        w0: 沟槽开口宽度（几何参数，模型单位）默认: 0.5
     返回:
-        浓度梯度
+        (x 方向, y 方向) 中性刻蚀速率分量
     """
     y -=-0.7
     x= np.abs(x)
@@ -160,8 +185,11 @@ def calculate_positional_flux_integral(point_data, r =radius):
         integral_y = quad(integrand_y, lower_limit, upper_limit)[0]
         reflect_x, reflect_y =calculate_reflect_flux(x_val, y_val)
         neutral_x, neutral_y = neutral_etch_rate(x_val, y_val)
-        ratio = 0.002 #0.028
+        ratio = 0.002  # 论文 Table 1: rho（反射离子混合权重）0.002 (<=0.01)
+        # Langmuir-Hinshelwood 饱和项（论文 Eq. effective_flux，k_d~0 被忽略）：
+        # 分子/分母中的 32 = k_a（中性吸附速率常数，Table 1: 32 (16--64)）
         integral_x = (integral_x * neutral_x *32/ (integral_x*32 + neutral_x)) #integral_x*(1-ratio) +reflect_x*ratio  #*config.side_p
+        # 1.3 = 纵向（深度方向）通量的经验增强因子，吸收进约化单位
         integral_y = integral_y*(1-ratio)*1.3 +reflect_y*ratio #+(integral_y * neutral_y *3/ (integral_y*3 + neutral_y))#+neutral_y
         # 乘以系数，但不乘以法向量
         integral_x *= np.pi * rate_0
@@ -369,7 +397,8 @@ class SeparatedEtchingRateCalculator:
 
         Args:
             etching_type: 刻蚀类型，'isotropic' 或 'integral'
-            coefficient: 通量系数
+            coefficient: gamma —— 单位换算系数（每反应事件移除的体积，
+                论文 Table 1: gamma = 0.8），v = gamma * J_eff
             flux_field: 预计算的位置通量场（PositionalFluxField实例）
             n_processes: 多进程数量
         """

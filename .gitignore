@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+results_*/
+out_*/
+out_hard/
+out_soft*/
+visualizations/
+checkpoints/
